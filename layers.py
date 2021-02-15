@@ -192,6 +192,9 @@ class Project3D(nn.Module):
         # print(T.shape)            #T:B*4*4
         # print(points.shape)         #B*4*(h*w)
 
+        # print(K)
+        # print(T)
+
         P = torch.matmul(K, T)[:, :3, :]    #B*3*4
 
         cam_points = torch.matmul(P, points)    #B*3*(h*w)
@@ -202,6 +205,7 @@ class Project3D(nn.Module):
         pix_coords[..., 0] /= self.width - 1
         pix_coords[..., 1] /= self.height - 1
         pix_coords = (pix_coords - 0.5) * 2
+
         return pix_coords
 
 
@@ -279,3 +283,13 @@ def compute_depth_errors(gt, pred):
     sq_rel = torch.mean((gt - pred) ** 2 / gt)
 
     return abs_rel, sq_rel, rmse, rmse_log, a1, a2, a3
+
+
+def Coord_3d_trans(points,T):
+    # print(T.shape)            #T:B*4*4
+    # print(points.shape)         #B*4*(h*w)
+
+    # B*3*4  *   B*4*(h*w)
+    cam_points = torch.matmul(T[:,:3,:], points)  # B*3*(h*w)
+
+    return cam_points

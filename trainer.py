@@ -266,12 +266,12 @@ class Trainer:
             pre_features=self.models["encoder"](inputs["color_aug", -1, 0])
             pre_disp=self.models["depth"](pre_features)
             for i in range(scale_num):
-                outputs[("pre_source_disp",i)]=pre_disp[('disp',i)]
+                outputs[("source_disp",-1,i)]=pre_disp[('disp',i)]
 
             next_features=self.models["encoder"](inputs["color_aug", 1, 0])
             next_disp=self.models["depth"](next_features)
             for i in range(scale_num):
-                outputs[("next_source_disp",i)]=next_disp[('disp',i)]
+                outputs[("source_disp",1,i)]=next_disp[('disp',i)]
 
 
         if self.opt.predictive_mask:
@@ -283,9 +283,10 @@ class Trainer:
 
 
         # outputs contains:
-        # 1.disp map of 4 different sizes
+        # 1.disp map of 4 different sized target frame
         # 2.camera pose from target to -1 frame and 1 frame
-        print(outputs.keys())
+        # 3.disp map of 4 different sized source frames(-1 and 1)
+        # print(outputs.keys())
 
         self.generate_images_pred(inputs, outputs)
         losses = self.compute_losses(inputs, outputs)
@@ -379,18 +380,24 @@ class Trainer:
 
             # disparity map of different size
             disp = outputs[("disp", scale)]
+            # pre_disp=outputs[("pre_disp",scale)]
+            # next_disp=outputs[("next_disp",scale)]
+
             if self.opt.v1_multiscale:
                 source_scale = scale
             else:
                 # disparity is resized to 192*640
                 disp = F.interpolate(
                     disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=False)
+
                 source_scale = 0
 
             _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
 
+
             # all 192*640 size
             outputs[("depth", 0, scale)] = depth
+
 
             for i, frame_id in enumerate(self.opt.frame_ids[1:]):
 
@@ -429,6 +436,27 @@ class Trainer:
                 # the original image correspond to the one after reprojection
                 if not self.opt.disable_automasking:
                     outputs[("color_identity", frame_id, scale)] = inputs[("color", frame_id, source_scale)]
+
+                if frame_id!='s':
+                    source_disp=outputs[('source_disp',frame_id,scale)]
+                    source_disp=F.interpolate(
+                        source_disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=False)
+
+                    _, source_depth = disp_to_depth(source_disp, self.opt.min_depth, self.opt.max_depth)
+
+                    source_cam_points = self.backproject_depth[source_scale](
+                        source_depth, inputs[("inv_K", source_scale)])
+                    transformed_source_3d=Coord_3d_trans(source_cam_points,torch.inverse(outputs[('cam_T_cam', 0, frame_id)]))
+                    transformed_source_3d=transformed_source_3d.view(transformed_source_3d.shape[0],3,self.opt.height,-1)
+
+                    warped_pre_3d=F.grid_sample(
+                            transformed_source_3d,
+                            outputs[("sample", -1, scale)],
+                            padding_mode="border")
+            #
+            #
+            # next_cam_points = self.backproject_depth[source_scale](
+            #     next_depth, inputs[("inv_K", source_scale)])
 
     def compute_reprojection_loss(self, pred, target):
         """Computes reprojection loss between a batch of predicted and target images
