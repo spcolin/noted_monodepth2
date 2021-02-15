@@ -232,6 +232,8 @@ class MonoDataset(data.Dataset):
             inputs["depth_gt"] = np.expand_dims(depth_gt, 0)    #1*375*1242
             inputs["depth_gt"] = torch.from_numpy(inputs["depth_gt"].astype(np.float32))
 
+
+        # for warping between stereo images
         if "s" in self.frame_idxs:
             stereo_T = np.eye(4, dtype=np.float32)
             baseline_sign = -1 if do_flip else 1
@@ -240,8 +242,6 @@ class MonoDataset(data.Dataset):
 
             inputs["stereo_T"] = torch.from_numpy(stereo_T)
 
-        # DO NOT KNOW THE USE OF inputs["stereo_T"]?????????????????????????????????????????????
-        # print(inputs["stereo_T"])
 
         return inputs
 

@@ -148,22 +148,30 @@ class BackprojectDepth(nn.Module):
 
         meshgrid = np.meshgrid(range(self.width), range(self.height), indexing='xy')
         self.id_coords = np.stack(meshgrid, axis=0).astype(np.float32)
-        self.id_coords = nn.Parameter(torch.from_numpy(self.id_coords),
+        self.id_coords = nn.Parameter(torch.from_numpy(self.id_coords),     # 2*h*w,2 for x and y coordinate
                                       requires_grad=False)
 
         self.ones = nn.Parameter(torch.ones(self.batch_size, 1, self.height * self.width),
                                  requires_grad=False)
 
         self.pix_coords = torch.unsqueeze(torch.stack(
-            [self.id_coords[0].view(-1), self.id_coords[1].view(-1)], 0), 0)
+            [self.id_coords[0].view(-1), self.id_coords[1].view(-1)], 0), 0)    #1*2*(h*w),1 for batch,2 for x and y coordinate
+
         self.pix_coords = self.pix_coords.repeat(batch_size, 1, 1)
+
         self.pix_coords = nn.Parameter(torch.cat([self.pix_coords, self.ones], 1),
-                                       requires_grad=False)
+                                       requires_grad=False)         #batch*3*(h*w),3 for x,y and 1
 
     def forward(self, depth, inv_K):
         cam_points = torch.matmul(inv_K[:, :3, :3], self.pix_coords)
         cam_points = depth.view(self.batch_size, 1, -1) * cam_points
-        cam_points = torch.cat([cam_points, self.ones], 1)
+
+        # DO NOT KNOW WHY CAT self.ones
+        cam_points = torch.cat([cam_points, self.ones], 1)      #B*4*(h*w)
+
+        # print(cam_points[0,:,30].shape)
+
+
 
         return cam_points
 
@@ -180,11 +188,15 @@ class Project3D(nn.Module):
         self.eps = eps
 
     def forward(self, points, K, T):
-        P = torch.matmul(K, T)[:, :3, :]
+        # print(K.shape)             #K:B*4*4
+        # print(T.shape)            #T:B*4*4
+        # print(points.shape)         #B*4*(h*w)
 
-        cam_points = torch.matmul(P, points)
+        P = torch.matmul(K, T)[:, :3, :]    #B*3*4
 
-        pix_coords = cam_points[:, :2, :] / (cam_points[:, 2, :].unsqueeze(1) + self.eps)
+        cam_points = torch.matmul(P, points)    #B*3*(h*w)
+
+        pix_coords = cam_points[:, :2, :] / (cam_points[:, 2, :].unsqueeze(1) + self.eps)   #B*2*(h*w),2 for x and y coordinate
         pix_coords = pix_coords.view(self.batch_size, 2, self.height, self.width)
         pix_coords = pix_coords.permute(0, 2, 3, 1)
         pix_coords[..., 0] /= self.width - 1

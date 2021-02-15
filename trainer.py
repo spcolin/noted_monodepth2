@@ -261,6 +261,19 @@ class Trainer:
             features = self.models["encoder"](inputs["color_aug", 0, 0])
             outputs = self.models["depth"](features)
 
+            scale_num=len(self.opt.scales)
+
+            pre_features=self.models["encoder"](inputs["color_aug", -1, 0])
+            pre_disp=self.models["depth"](pre_features)
+            for i in range(scale_num):
+                outputs[("pre_source_disp",i)]=pre_disp[('disp',i)]
+
+            next_features=self.models["encoder"](inputs["color_aug", 1, 0])
+            next_disp=self.models["depth"](next_features)
+            for i in range(scale_num):
+                outputs[("next_source_disp",i)]=next_disp[('disp',i)]
+
+
         if self.opt.predictive_mask:
             outputs["predictive_mask"] = self.models["predictive_mask"](features)
 
@@ -268,9 +281,11 @@ class Trainer:
             # python dict update operation
             outputs.update(self.predict_poses(inputs, features))
 
-        # print("********************")
-        # print(outputs)
-        # print("--------------------")
+
+        # outputs contains:
+        # 1.disp map of 4 different sizes
+        # 2.camera pose from target to -1 frame and 1 frame
+        print(outputs.keys())
 
         self.generate_images_pred(inputs, outputs)
         losses = self.compute_losses(inputs, outputs)
@@ -380,8 +395,6 @@ class Trainer:
             for i, frame_id in enumerate(self.opt.frame_ids[1:]):
 
                 if frame_id == "s":
-
-                    # DO NOT KNOW THE USE OF T IN STEREO CONFIGURATION????????????????????????
                     T = inputs["stereo_T"]
                 else:
                     T = outputs[("cam_T_cam", 0, frame_id)]
