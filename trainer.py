@@ -298,7 +298,7 @@ class Trainer:
         # 6.warped rgb color image
         # 7.corresponding unwarped rgb color image for computing the auto mask
         # 8.transformed 3d coordinate of source frames -1 and 1
-        print(outputs.keys())
+        # print(outputs.keys())
         losses = self.compute_losses(inputs, outputs)
 
         return outputs, losses
