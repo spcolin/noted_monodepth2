@@ -454,7 +454,7 @@ class Trainer:
 
                     source_cam_points = self.backproject_depth[source_scale](
                         source_depth, inputs[("inv_K", source_scale)])
-                    transformed_source_3d=Coord_3d_trans(source_cam_points,torch.inverse(outputs[('cam_T_cam', 0, frame_id)]))
+                    transformed_source_3d=Coord_3d_trans(source_cam_points,outputs[('cam_T_cam', 0, frame_id)])
                     transformed_source_3d=transformed_source_3d.view(transformed_source_3d.shape[0],3,self.opt.height,-1)
 
                     warped_pre_3d=F.grid_sample(

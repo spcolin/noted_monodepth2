@@ -289,7 +289,13 @@ def Coord_3d_trans(points,T):
     # print(T.shape)            #T:B*4*4
     # print(points.shape)         #B*4*(h*w)
 
-    # B*3*4  *   B*4*(h*w)
-    cam_points = torch.matmul(T[:,:3,:], points)  # B*3*(h*w)
+    R=T[:,:3,:3]    #B*3*3
+    t=T[:,:3,-1].unsqueeze(2)   #B*3*1
+    # print(R.shape)
+    # print(t.shape)
+    
+    cam_points=torch.matmul(torch.inverse(R),points[:,:3,:])-t
+
+
 
     return cam_points
