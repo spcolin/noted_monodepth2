@@ -282,13 +282,23 @@ class Trainer:
             outputs.update(self.predict_poses(inputs, features))
 
 
-        # outputs contains:
+        # so far outputs contains:
         # 1.disp map of 4 different sized target frame
         # 2.camera pose from target to -1 frame and 1 frame
         # 3.disp map of 4 different sized source frames(-1 and 1)
         # print(outputs.keys())
 
         self.generate_images_pred(inputs, outputs)
+        # so far outputs contains:
+        # 1.disp map of 4 different sized target frame
+        # 2.camera pose from target to -1 frame and 1 frame
+        # 3.disp map of 4 different sized source frames(-1 and 1)
+        # 4.target frame depth map of different sizes
+        # 5.sample grid for interpolation from -1 or 1 frame
+        # 6.warped rgb color image
+        # 7.corresponding unwarped rgb color image for computing the auto mask
+        # 8.transformed 3d coordinate of source frames -1 and 1
+        print(outputs.keys())
         losses = self.compute_losses(inputs, outputs)
 
         return outputs, losses
@@ -380,8 +390,7 @@ class Trainer:
 
             # disparity map of different size
             disp = outputs[("disp", scale)]
-            # pre_disp=outputs[("pre_disp",scale)]
-            # next_disp=outputs[("next_disp",scale)]
+
 
             if self.opt.v1_multiscale:
                 source_scale = scale
@@ -397,7 +406,6 @@ class Trainer:
 
             # all 192*640 size
             outputs[("depth", 0, scale)] = depth
-
 
             for i, frame_id in enumerate(self.opt.frame_ids[1:]):
 
@@ -453,10 +461,11 @@ class Trainer:
                             transformed_source_3d,
                             outputs[("sample", -1, scale)],
                             padding_mode="border")
-            #
-            #
-            # next_cam_points = self.backproject_depth[source_scale](
-            #     next_depth, inputs[("inv_K", source_scale)])
+
+                    outputs[("transformed_source_3d",frame_id,scale)]=warped_pre_3d     #all B*3*192*640
+
+
+
 
     def compute_reprojection_loss(self, pred, target):
         """Computes reprojection loss between a batch of predicted and target images
@@ -471,6 +480,21 @@ class Trainer:
             reprojection_loss = 0.85 * ssim_loss + 0.15 * l1_loss
 
         return reprojection_loss
+
+
+
+    def compute_3d_loss(self,target,pre,next,pre_mask,next_mask):
+
+
+        mask=(pre_mask&next_mask).unsqueeze(1).float()
+        loss_fn=torch.nn.L1Loss(reduction='mean')
+
+        pre_loss=loss_fn(target*mask,pre*mask)
+        next_loss=loss_fn(target*mask,next*mask)
+
+        loss=pre_loss+next_loss
+
+        return loss
 
     def compute_losses(self, inputs, outputs):
         """Compute the reprojection and smoothness losses for a minibatch
@@ -556,7 +580,6 @@ class Trainer:
                     idxs > identity_reprojection_loss.shape[1] - 1).float()
 
 
-
             loss += to_optimise.mean()
 
 
@@ -565,6 +588,19 @@ class Trainer:
             smooth_loss = get_smooth_loss(norm_disp, color)
 
             loss += self.opt.disparity_smoothness * smooth_loss / (2 ** scale)
+
+
+            target_depth=outputs[('depth',0,scale)]
+            target_3d=self.backproject_depth[0](
+                target_depth, inputs[("inv_K", 0)])[:,:3,:].view(target_depth.shape[0],3,self.opt.height,self.opt.width)
+            pre_3d=outputs[('transformed_source_3d',-1,scale)]
+            pre_mask=outputs[('sample',-1,scale)].abs().max(dim=-1)[0]<1
+            next_3d=outputs[('transformed_source_3d',1,scale)]
+            next_mask=outputs[('sample',1,scale)].abs().max(dim=-1)[0]<1
+
+            loss_3d=self.compute_3d_loss(target_3d,pre_3d,next_3d,pre_mask,next_mask)
+            loss+=loss_3d
+
             total_loss += loss
             losses["loss/{}".format(scale)] = loss
 
