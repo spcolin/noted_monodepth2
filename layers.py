@@ -202,9 +202,11 @@ class Project3D(nn.Module):
         pix_coords = cam_points[:, :2, :] / (cam_points[:, 2, :].unsqueeze(1) + self.eps)   #B*2*(h*w),2 for x and y coordinate
         pix_coords = pix_coords.view(self.batch_size, 2, self.height, self.width)
         pix_coords = pix_coords.permute(0, 2, 3, 1)
+        print(pix_coords[0,100,300,:])
         pix_coords[..., 0] /= self.width - 1
         pix_coords[..., 1] /= self.height - 1
         pix_coords = (pix_coords - 0.5) * 2
+
 
         return pix_coords
 
@@ -293,7 +295,7 @@ def Coord_3d_trans(points,T):
     t=T[:,:3,-1].unsqueeze(2)   #B*3*1
     # print(R.shape)
     # print(t.shape)
-    
+
     cam_points=torch.matmul(torch.inverse(R),points[:,:3,:])-t
 
 

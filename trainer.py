@@ -132,7 +132,7 @@ class Trainer:
             self.opt.data_path, train_filenames, self.opt.height, self.opt.width,
             self.opt.frame_ids, 4, is_train=True, img_ext=img_ext)
         self.train_loader = DataLoader(
-            train_dataset, self.opt.batch_size, True,
+            train_dataset, self.opt.batch_size,shuffle=False,
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
         val_dataset = self.dataset(
             self.opt.data_path, val_filenames, self.opt.height, self.opt.width,
@@ -403,7 +403,6 @@ class Trainer:
 
             _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
 
-
             # all 192*640 size
             outputs[("depth", 0, scale)] = depth
 
@@ -451,15 +450,19 @@ class Trainer:
                         source_disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=False)
 
                     _, source_depth = disp_to_depth(source_disp, self.opt.min_depth, self.opt.max_depth)
-
+                    # print(source_depth[0,0,100,300])
+                    # print(inputs[("K", source_scale)])
                     source_cam_points = self.backproject_depth[source_scale](
                         source_depth, inputs[("inv_K", source_scale)])
+                    print(source_cam_points.view(1,4,192,640)[0,:,100,300])
+                    print(outputs[('cam_T_cam', 0, frame_id)])
                     transformed_source_3d=Coord_3d_trans(source_cam_points,outputs[('cam_T_cam', 0, frame_id)])
+                    print(transformed_source_3d.view(1,3,192,640)[0,:,100,300])
                     transformed_source_3d=transformed_source_3d.view(transformed_source_3d.shape[0],3,self.opt.height,-1)
 
                     warped_pre_3d=F.grid_sample(
                             transformed_source_3d,
-                            outputs[("sample", -1, scale)],
+                            outputs[("sample", frame_id, scale)],
                             padding_mode="border")
 
                     outputs[("transformed_source_3d",frame_id,scale)]=warped_pre_3d     #all B*3*192*640
