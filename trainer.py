@@ -450,22 +450,17 @@ class Trainer:
                         source_disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=False)
 
                     _, source_depth = disp_to_depth(source_disp, self.opt.min_depth, self.opt.max_depth)
-                    # print(source_depth[0,0,100,300])
-                    # print(inputs[("K", source_scale)])
                     source_cam_points = self.backproject_depth[source_scale](
                         source_depth, inputs[("inv_K", source_scale)])
-                    print(source_cam_points.view(1,4,192,640)[0,:,100,300])
-                    print(outputs[('cam_T_cam', 0, frame_id)])
                     transformed_source_3d=Coord_3d_trans(source_cam_points,outputs[('cam_T_cam', 0, frame_id)])
-                    print(transformed_source_3d.view(1,3,192,640)[0,:,100,300])
                     transformed_source_3d=transformed_source_3d.view(transformed_source_3d.shape[0],3,self.opt.height,-1)
 
-                    warped_pre_3d=F.grid_sample(
+                    warped_3d=F.grid_sample(
                             transformed_source_3d,
                             outputs[("sample", frame_id, scale)],
-                            padding_mode="border")
+                            padding_mode="zeros")
 
-                    outputs[("transformed_source_3d",frame_id,scale)]=warped_pre_3d     #all B*3*192*640
+                    outputs[("transformed_source_3d",frame_id,scale)]=warped_3d     #all B*3*192*640
 
 
 
