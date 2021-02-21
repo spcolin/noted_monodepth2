@@ -99,16 +99,16 @@ class MonodepthOptions:
                                  type=int,
                                  help="batch size",
                                  # default=12)
-                                 default=1)
+                                 default=3)
 
         self.parser.add_argument("--learning_rate",
                                  type=float,
                                  help="learning rate",
-                                 default=1e-4)
+                                 default=5e-5)
         self.parser.add_argument("--num_epochs",
                                  type=int,
                                  help="number of epochs",
-                                 default=20)
+                                 default=100)
         self.parser.add_argument("--scheduler_step_size",
                                  type=int,
                                  help="step size of the scheduler",
@@ -160,7 +160,8 @@ class MonodepthOptions:
         # need to specify
         self.parser.add_argument("--load_weights_folder",
                                  type=str,
-                                 help="name of model to load")
+                                 help="name of model to load",
+                                 default="mono+stereo_640x192")
         # need to specify
         self.parser.add_argument("--models_to_load",
                                  nargs="+",

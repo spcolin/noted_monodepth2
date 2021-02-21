@@ -103,7 +103,7 @@ class Trainer:
 
         self.model_optimizer = optim.Adam(self.parameters_to_train, self.opt.learning_rate)
         self.model_lr_scheduler = optim.lr_scheduler.StepLR(
-            self.model_optimizer, self.opt.scheduler_step_size, 0.1)
+            self.model_optimizer, self.opt.scheduler_step_size, 0.9)
 
         if self.opt.load_weights_folder is not None:
             self.load_model()
@@ -191,11 +191,12 @@ class Trainer:
         self.step = 0
         self.start_time = time.time()
         for self.epoch in range(self.opt.num_epochs):
+            print("--------------epoch:",self.epoch,"----------------------")
             self.run_epoch()
             if (self.epoch + 1) % self.opt.save_frequency == 0:
                 self.save_model()
 
-            break
+            # break
 
     def run_epoch(self):
         """Run a single epoch of training and validation
@@ -218,13 +219,14 @@ class Trainer:
             duration = time.time() - before_op_time
 
             # log less frequently after the first 2000 steps to save time & disk space
-            early_phase = batch_idx % self.opt.log_frequency == 0 and self.step < 2000
-            late_phase = self.step % 2000 == 0
+            early_phase = batch_idx % self.opt.log_frequency == 0 and self.step < 100
+            late_phase = self.step % 100 == 0
 
-            break
+            # break
 
 
-            if early_phase or late_phase:
+            # if early_phase or late_phase:
+            if batch_idx%3==0:
                 self.log_time(batch_idx, duration, losses["loss"].cpu().data)
 
                 if "depth_gt" in inputs:
@@ -461,6 +463,7 @@ class Trainer:
                             padding_mode="zeros")
 
                     outputs[("transformed_source_3d",frame_id,scale)]=warped_3d     #all B*3*192*640
+                    # print(warped_3d[0,:,100,300])
 
 
 
@@ -470,6 +473,7 @@ class Trainer:
         """
         abs_diff = torch.abs(target - pred)
         l1_loss = abs_diff.mean(1, True)
+
 
         if self.opt.no_ssim:
             reprojection_loss = l1_loss
@@ -484,11 +488,49 @@ class Trainer:
     def compute_3d_loss(self,target,pre,next,pre_mask,next_mask):
 
 
-        mask=(pre_mask&next_mask).unsqueeze(1).float()
+
+        # B=target.shape[0]
+        #
+        # for i in range(B):
+        #     # if  target[i,2,100,300]>100:
+        #         print(target[i,:,100,300])
+        #         print(pre[i,:,100,300])
+        #         print(next[i,:,100,300])
+            #
+            # if  pre[i,2,100,300]>100:
+            #     print(target[0, :, 100, 300])
+            #     print(pre[0, :, 100, 300])
+            #     print(next[0, :, 100, 300])
+            #
+            # if  next[i, 2, 100, 300]>100:
+            #     print(target[0, :, 100, 300])
+            #     print(pre[0, :, 100, 300])
+            #     print(next[0, :, 100, 300])
+        # print("-" * 20)
+
+        mask=(pre_mask&next_mask).unsqueeze(1).expand_as(target)
         loss_fn=torch.nn.L1Loss(reduction='mean')
 
-        pre_loss=loss_fn(target*mask,pre*mask)
-        next_loss=loss_fn(target*mask,next*mask)
+        target_norm=torch.norm(target,2)
+        zero_mask1=target_norm==0
+        target_norm=target_norm.masked_fill(zero_mask1,1.0)
+
+        pre_norm=torch.norm(pre,2)
+        zero_mask2=pre_norm==0
+        pre_norm = pre_norm.masked_fill(zero_mask2, 1.0)
+
+        next_norm=torch.norm(next,2)
+        zero_mask3 = next_norm == 0
+        next_norm = next_norm.masked_fill(zero_mask3, 1.0)
+
+        normed_target=target/target_norm
+        normed_pre=pre/pre_norm
+        normed_next=next/next_norm
+
+
+        pre_loss=loss_fn(normed_target[mask],normed_pre[mask])
+        next_loss=loss_fn(normed_target[mask],normed_next[mask])
+
 
         loss=pre_loss+next_loss
 
@@ -579,13 +621,14 @@ class Trainer:
 
 
             loss += to_optimise.mean()
-
+            print("reprojection loss:", to_optimise.mean())
 
             mean_disp = disp.mean(2, True).mean(3, True)
             norm_disp = disp / (mean_disp + 1e-7)
             smooth_loss = get_smooth_loss(norm_disp, color)
 
             loss += self.opt.disparity_smoothness * smooth_loss / (2 ** scale)
+            # print("smooth loss:", self.opt.disparity_smoothness * smooth_loss / (2 ** scale))
 
 
             target_depth=outputs[('depth',0,scale)]
@@ -596,14 +639,21 @@ class Trainer:
             next_3d=outputs[('transformed_source_3d',1,scale)]
             next_mask=outputs[('sample',1,scale)].abs().max(dim=-1)[0]<1
 
-            loss_3d=self.compute_3d_loss(target_3d,pre_3d,next_3d,pre_mask,next_mask)
+
+            loss_3d=self.compute_3d_loss(target_3d,pre_3d,next_3d,pre_mask,next_mask)*1000
+            print("3d loss:",loss_3d)
+            print("*"*20)
             loss+=loss_3d
 
             total_loss += loss
             losses["loss/{}".format(scale)] = loss
 
+
+
         total_loss /= self.num_scales
         losses["loss"] = total_loss
+
+
         return losses
 
     def compute_depth_losses(self, inputs, outputs, losses):
@@ -714,9 +764,11 @@ class Trainer:
         torch.save(self.model_optimizer.state_dict(), save_path)
 
     def load_model(self):
+        print("load model")
         """Load model(s) from disk
         """
         self.opt.load_weights_folder = os.path.expanduser(self.opt.load_weights_folder)
+        self.opt.load_weights_folder = "C:/Users/Administrator/tmp/mono+stereo_640x192"
 
         assert os.path.isdir(self.opt.load_weights_folder), \
             "Cannot find folder {}".format(self.opt.load_weights_folder)
