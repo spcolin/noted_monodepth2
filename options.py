@@ -34,7 +34,7 @@ class MonodepthOptions:
                                  type=str,
                                  help="the name of the folder to save the model in",
                                  # default="mdp")
-                                 default="MS_640x192")
+                                 default="with3d")
 
         self.parser.add_argument("--split",
                                  type=str,
@@ -108,7 +108,7 @@ class MonodepthOptions:
         self.parser.add_argument("--num_epochs",
                                  type=int,
                                  help="number of epochs",
-                                 default=100)
+                                 default=200)
         self.parser.add_argument("--scheduler_step_size",
                                  type=int,
                                  help="step size of the scheduler",
@@ -160,8 +160,8 @@ class MonodepthOptions:
         # need to specify
         self.parser.add_argument("--load_weights_folder",
                                  type=str,
-                                 help="name of model to load",
-                                 default="mono+stereo_640x192")
+                                 help="name of model to load")
+                                 # default="mono+stereo_640x192")
         # need to specify
         self.parser.add_argument("--models_to_load",
                                  nargs="+",

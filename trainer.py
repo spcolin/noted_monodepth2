@@ -28,6 +28,10 @@ from IPython import embed
 
 class Trainer:
     def __init__(self, options):
+
+
+        self.loss_writer=SummaryWriter("C:/Users/Administrator/Desktop/loss/with3dnorm")
+
         self.opt = options
         self.log_path = os.path.join(self.opt.log_dir, self.opt.model_name)
 
@@ -103,7 +107,7 @@ class Trainer:
 
         self.model_optimizer = optim.Adam(self.parameters_to_train, self.opt.learning_rate)
         self.model_lr_scheduler = optim.lr_scheduler.StepLR(
-            self.model_optimizer, self.opt.scheduler_step_size, 0.9)
+            self.model_optimizer, self.opt.scheduler_step_size, 0.5)
 
         if self.opt.load_weights_folder is not None:
             self.load_model()
@@ -132,7 +136,7 @@ class Trainer:
             self.opt.data_path, train_filenames, self.opt.height, self.opt.width,
             self.opt.frame_ids, 4, is_train=True, img_ext=img_ext)
         self.train_loader = DataLoader(
-            train_dataset, self.opt.batch_size,shuffle=False,
+            train_dataset, self.opt.batch_size,shuffle=True,
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
         val_dataset = self.dataset(
             self.opt.data_path, val_filenames, self.opt.height, self.opt.width,
@@ -452,18 +456,39 @@ class Trainer:
                         source_disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=False)
 
                     _, source_depth = disp_to_depth(source_disp, self.opt.min_depth, self.opt.max_depth)
+                    # print(inputs[("K", source_scale)])
                     source_cam_points = self.backproject_depth[source_scale](
                         source_depth, inputs[("inv_K", source_scale)])
+
                     transformed_source_3d=Coord_3d_trans(source_cam_points,outputs[('cam_T_cam', 0, frame_id)])
                     transformed_source_3d=transformed_source_3d.view(transformed_source_3d.shape[0],3,self.opt.height,-1)
 
                     warped_3d=F.grid_sample(
                             transformed_source_3d,
                             outputs[("sample", frame_id, scale)],
-                            padding_mode="zeros")
+                            padding_mode="zeros",mode='bilinear')
+
+
 
                     outputs[("transformed_source_3d",frame_id,scale)]=warped_3d     #all B*3*192*640
                     # print(warped_3d[0,:,100,300])
+
+                    # if scale==0:
+                    #     print(frame_id)
+                    #     print(transformed_source_3d.view(3,-1,192,640)[0,:,130,418])
+                    #     print(warped_3d[0, :, 130, 420])
+                    #     print(source_depth[0,0,150,450])
+                    #     print(source_cam_points.view(3,4,192,-1)[0,:,150,450])
+                    #     print(outputs[('cam_T_cam', 0, frame_id)])
+                # if (scale==0)&(frame_id==1):
+                #     print("*"*30)
+                #     print(depth[0,0,100,300])
+                #     print(cam_points.view(3,-1,192,640)[0,:,100,300])
+
+
+            # if scale==0:
+            #     print(depth[0,0,150,450])
+            # print("---------scale:",scale,"--------------")
 
 
 
@@ -490,7 +515,6 @@ class Trainer:
 
 
         # B=target.shape[0]
-        #
         # for i in range(B):
         #     # if  target[i,2,100,300]>100:
         #         print(target[i,:,100,300])
@@ -511,15 +535,19 @@ class Trainer:
         mask=(pre_mask&next_mask).unsqueeze(1).expand_as(target)
         loss_fn=torch.nn.L1Loss(reduction='mean')
 
-        target_norm=torch.norm(target,2)
+        # pre_loss=loss_fn(target[mask],pre[mask])
+        # next_loss=loss_fn(target[mask],next[mask])
+
+
+        target_norm=torch.norm(target,2,dim=1,keepdim=True)
         zero_mask1=target_norm==0
         target_norm=target_norm.masked_fill(zero_mask1,1.0)
 
-        pre_norm=torch.norm(pre,2)
+        pre_norm=torch.norm(pre,2,dim=1,keepdim=True)
         zero_mask2=pre_norm==0
         pre_norm = pre_norm.masked_fill(zero_mask2, 1.0)
 
-        next_norm=torch.norm(next,2)
+        next_norm=torch.norm(next,2,dim=1,keepdim=True)
         zero_mask3 = next_norm == 0
         next_norm = next_norm.masked_fill(zero_mask3, 1.0)
 
@@ -528,12 +556,116 @@ class Trainer:
         normed_next=next/next_norm
 
 
-        pre_loss=loss_fn(normed_target[mask],normed_pre[mask])
-        next_loss=loss_fn(normed_target[mask],normed_next[mask])
+
+
+        pre_loss = torch.norm(normed_target[mask]-normed_pre[mask],2)
+        next_loss = torch.norm(normed_target[mask]-normed_next[mask],2)
+        # inter_loss = loss_fn(normed_pre[mask], normed_target[mask])
 
 
         loss=pre_loss+next_loss
 
+        return loss
+
+
+    def compute_pos_loss(self,target,pre,next,pre_mask,next_mask,K):
+
+
+        loss_fn=torch.nn.L1Loss(reduction='mean')
+
+
+        # print(target[0,:,100,300])
+        # print(pre[0,:,100,300])
+        # print(next[0,:,100,300])
+        # print(K)
+
+
+        # print(pre[0,:,130,420])
+
+        tensor_shape=target.shape
+        viewed_pre=pre.view(tensor_shape[0],3,-1)
+        viewed_next=next.view(tensor_shape[0],3,-1)
+
+        mask = (pre_mask & next_mask).unsqueeze(1).float()
+        mask = mask.view(tensor_shape[0],1,-1)
+        # print(mask.shape)
+
+        # print(mask.shape)
+
+        cam_pre=torch.matmul(K[:,:3,:3],viewed_pre)
+        cam_next=torch.matmul(K[:,:3,:3],viewed_next)
+
+        eps=1e-7
+        pix_pre=cam_pre[:,:2,:]/(cam_pre[:,2,:].unsqueeze(1)+eps)
+        pix_next=cam_next[:,:2,:]/(cam_next[:,2,:].unsqueeze(1)+eps)
+
+        # pix_target=pix_target.view(tensor_shape[0],2,tensor_shape[2],tensor_shape[3])
+        # pix_pre=pix_pre.view(tensor_shape[0],2,tensor_shape[2],tensor_shape[3])
+        # pix_next=pix_next.view(tensor_shape[0],2,tensor_shape[2],tensor_shape[3])
+
+        # print(pix_target[0,:,100,300])
+        # print("pixel pos:",pix_pre[0,:,130,420])
+        # print(pix_next[0,:,100,300])
+
+        width=tensor_shape[3]
+        height=tensor_shape[2]
+        batch_size=tensor_shape[0]
+        meshgrid = np.meshgrid(range(width), range(height), indexing='xy')
+        id_coords = np.stack(meshgrid, axis=0).astype(np.float32)
+        id_coords = nn.Parameter(torch.from_numpy(id_coords),  # 2*h*w,2 for x and y coordinate
+                                      requires_grad=False)
+
+        pix_coords = torch.unsqueeze(torch.stack(
+            [id_coords[0].view(-1), id_coords[1].view(-1)], 0),
+            0)  # 1*2*(h*w),1 for batch,2 for x and y coordinate
+
+        pix_coords = nn.Parameter(pix_coords.repeat(batch_size, 1, 1)).to(target.device)
+
+        # pre_loss=torch.abs(pix_coords-pix_pre)*mask
+        # print(pix_coords[0,:,40000])
+        # print(pix_pre[0,:,40000])
+        # print(pix_next[0,:,40000])
+
+        # pix_pre[:,0,:]=pix_pre[:,0,:]/width
+        # pix_pre[:,1,:]=pix_pre[:,1,:]/height
+        #
+        # pix_next[:,0,:]=pix_next[:,0,:]/width
+        # pix_next[:,1,:]=pix_next[:,1,:]/height
+        #
+        # pix_coords[:,0,:]=pix_coords[:,0,:]/width
+        # pix_coords[:,1,:]=pix_coords[:,1,:]/height
+
+        pre_loss=loss_fn(pix_coords*mask,pix_pre*mask)
+        next_loss=loss_fn(pix_coords*mask,pix_next*mask)
+
+        # loss=(torch.abs(pix_coords-pix_next)*mask).mean()+(torch.abs(pix_coords-pix_pre)*mask).mean()
+
+        # target_norm = torch.norm(pix_coords, 2,dim=1,keepdim=True)
+        # zero_mask1 = target_norm == 0
+        # target_norm = target_norm.masked_fill(zero_mask1, 1.0)
+        #
+        # pre_norm = torch.norm(pix_pre, 2,dim=1,keepdim=True)
+        # zero_mask2 = pre_norm == 0
+        # pre_norm = pre_norm.masked_fill(zero_mask2, 1.0)
+        #
+        # next_norm = torch.norm(pix_next, 2,dim=1,keepdim=True)
+        # zero_mask3 = next_norm == 0
+        # next_norm = next_norm.masked_fill(zero_mask3, 1.0)
+        #
+        #
+        # normed_target=pix_coords/target_norm
+        # normed_pre = pix_pre / pre_norm
+        # normed_next = pix_next / next_norm
+        #
+        #
+        # pre_loss = loss_fn(normed_pre*mask, normed_target*mask)
+        # next_loss = loss_fn(normed_next*mask, normed_target*mask)
+        #
+        #
+        loss=pre_loss+next_loss
+
+        # print(loss)
+        # print("-" * 20)
         return loss
 
     def compute_losses(self, inputs, outputs):
@@ -621,7 +753,8 @@ class Trainer:
 
 
             loss += to_optimise.mean()
-            print("reprojection loss:", to_optimise.mean())
+            self.loss_writer.add_scalar("reprojection_loss",to_optimise.mean().item(),self.step)
+            # print("reprojection loss:", to_optimise.mean())
 
             mean_disp = disp.mean(2, True).mean(3, True)
             norm_disp = disp / (mean_disp + 1e-7)
@@ -640,15 +773,23 @@ class Trainer:
             next_mask=outputs[('sample',1,scale)].abs().max(dim=-1)[0]<1
 
 
-            loss_3d=self.compute_3d_loss(target_3d,pre_3d,next_3d,pre_mask,next_mask)*1000
+            loss_3d=self.compute_3d_loss(target_3d,pre_3d,next_3d,pre_mask,next_mask)*0.05
+            self.loss_writer.add_scalar("3d_loss", loss_3d.item(), self.step)
             print("3d loss:",loss_3d)
             print("*"*20)
             loss+=loss_3d
+            # pos_loss=self.compute_pos_loss(target_3d,pre_3d,next_3d,pre_mask,next_mask,inputs[("K", source_scale)])*20
+            # print(pos_loss)
+            # print("-"*20)
+            # loss+=pos_loss
+            # self.loss_writer.add_scalar("pos_loss", pos_loss.item(), self.step)
+
 
             total_loss += loss
             losses["loss/{}".format(scale)] = loss
 
-
+        # 初始化depth的尺度问题
+        # 在训练的后期使用3d loss
 
         total_loss /= self.num_scales
         losses["loss"] = total_loss
@@ -768,7 +909,7 @@ class Trainer:
         """Load model(s) from disk
         """
         self.opt.load_weights_folder = os.path.expanduser(self.opt.load_weights_folder)
-        self.opt.load_weights_folder = "C:/Users/Administrator/tmp/mono+stereo_640x192"
+        # self.opt.load_weights_folder = "C:/Users/Administrator/tmp/mono+stereo_640x192"
 
         assert os.path.isdir(self.opt.load_weights_folder), \
             "Cannot find folder {}".format(self.opt.load_weights_folder)
@@ -784,10 +925,10 @@ class Trainer:
             self.models[n].load_state_dict(model_dict)
 
         # loading adam state
-        optimizer_load_path = os.path.join(self.opt.load_weights_folder, "adam.pth")
-        if os.path.isfile(optimizer_load_path):
-            print("Loading Adam weights")
-            optimizer_dict = torch.load(optimizer_load_path)
-            self.model_optimizer.load_state_dict(optimizer_dict)
-        else:
-            print("Cannot find Adam weights so Adam is randomly initialized")
+        # optimizer_load_path = os.path.join(self.opt.load_weights_folder, "adam.pth")
+        # if os.path.isfile(optimizer_load_path):
+        #     print("Loading Adam weights")
+        #     optimizer_dict = torch.load(optimizer_load_path)
+        #     self.model_optimizer.load_state_dict(optimizer_dict)
+        # else:
+        #     print("Cannot find Adam weights so Adam is randomly initialized")

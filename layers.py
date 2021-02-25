@@ -36,6 +36,7 @@ def transformation_from_parameters(axisangle, translation, invert=False):
         t *= -1
 
     T = get_translation_matrix(t)
+    # print(R)
 
     if invert:
         M = torch.matmul(R, T)
@@ -196,13 +197,14 @@ class Project3D(nn.Module):
         # print(T)
 
         P = torch.matmul(K, T)[:, :3, :]    #B*3*4
-
+        # print(P[0])
         cam_points = torch.matmul(P, points)    #B*3*(h*w)
+        # print(cam_points.view(3,3,192,640)[0,:,100,300])
 
         pix_coords = cam_points[:, :2, :] / (cam_points[:, 2, :].unsqueeze(1) + self.eps)   #B*2*(h*w),2 for x and y coordinate
         pix_coords = pix_coords.view(self.batch_size, 2, self.height, self.width)
         pix_coords = pix_coords.permute(0, 2, 3, 1)
-        # print(pix_coords[0,400,400,:])
+        # print("grid:",pix_coords[0,130,420,:])
         pix_coords[..., 0] /= self.width - 1
         pix_coords[..., 1] /= self.height - 1
         pix_coords = (pix_coords - 0.5) * 2
@@ -296,7 +298,7 @@ def Coord_3d_trans(points,T):
     # print(R.shape)
     # print(t.shape)
 
-    cam_points=torch.matmul(torch.inverse(R),points[:,:3,:])-t
+    cam_points=torch.matmul(torch.inverse(R),points[:,:3,:]-t)
 
 
 

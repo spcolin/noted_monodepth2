@@ -17,10 +17,10 @@ opts = options.parse()
 
 
 if __name__ == "__main__":
-    # torch.manual_seed(20)
-    # torch.cuda.manual_seed_all(20)
-    # np.random.seed(20)
-    # random.seed(20)
+    torch.manual_seed(100)
+    torch.cuda.manual_seed_all(100)
+    np.random.seed(100)
+    random.seed(100)
     torch.backends.cudnn.deterministic = True
     trainer = Trainer(opts)
     trainer.train()
